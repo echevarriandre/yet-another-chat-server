@@ -1,42 +1,44 @@
+import http from "http";
 import { Server } from "socket.io";
-import {
-  ClientServerEventNames as CS,
-  ClientToServerEvents,
-  ServerClientEventNames as SC,
-  ServerToClientEvents,
-} from "./@types";
-import { Users } from "./models/Users";
+import { DefaultEventsMap } from "socket.io/dist/typed-events";
+import { ClientToServerEvents, CS, SC, ServerToClientEvents, SocketData, User } from "./types";
 
-const io = new Server<ClientToServerEvents, ServerToClientEvents>(5000, { cors: { origin: "*" } });
+const httpServer = http.createServer();
+const io = new Server<ClientToServerEvents, ServerToClientEvents, DefaultEventsMap, SocketData>(httpServer, {
+  cors: { origin: "*" },
+});
 
-const activeUsers = new Users();
+// Auth Middleware
+io.use((socket, next) => {
+  const username = socket.handshake.auth.username;
+  if (!username) return next(new Error("Username is required"));
+
+  socket.data.username = username;
+  next();
+});
 
 io.on("connection", (socket) => {
-  console.log(socket.id, "connected");
+  // Send connected users;
+  const users = [] as User[];
+  io.of("/").sockets.forEach((s) => {
+    if (s.id === socket.id) return;
+    users.push({ id: s.id, username: s.data.username! });
+  });
+  socket.emit(SC.Users, users);
 
-  socket.on(CS.ChatConnect, (username: string) => {
-    activeUsers.addUser(socket.id, username);
-    socket.broadcast.emit(SC.ChatNewUser, { id: socket.id, username, chatting: false });
+  socket.broadcast.emit(SC.UserConnected, {
+    id: socket.id,
+    username: socket.data.username!,
   });
 
-  socket.on(CS.ChatFetchUsers, (callback) => {
-    callback(activeUsers.getUsers(socket.id));
-  });
-
-  socket.on(CS.ChatAskUser, (id: string) => {
-    const username = activeUsers.getUsernameById(id);
-    const currentUser = activeUsers.getUsernameById(socket.id);
-    if (!username) {
-      socket.emit(SC.ChatAskUserNotFound, "Username not found");
-      return;
-    }
-
-    socket.to(id).emit(SC.ChatUserRequest, currentUser!);
+  socket.on(CS.Message, (message, to) => {
+    socket.to(to).emit(SC.Message, message, socket.id);
   });
 
   socket.on("disconnect", () => {
-    console.log(socket.id, "disconnected");
-    activeUsers.deleteUser(socket.id);
-    socket.broadcast.emit(SC.ChatRemoveUser, socket.id);
+    // activeUsers.deleteUser(socket.id);
+    // socket.broadcast.emit(SC.ChatRemoveUser, socket.id);
   });
 });
+
+httpServer.listen(5000);
