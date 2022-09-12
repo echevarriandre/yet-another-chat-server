@@ -50,12 +50,12 @@ io.on("connection", (socket) => {
   socket.emit(SC.Users, users);
 
   socket.broadcast.emit(SC.UserConnected, {
-    id: socket.id,
+    id: socket.data.userId!,
     username: socket.data.username!,
   });
 
   socket.on(CS.Message, (message, to) => {
-    socket.to(to).to(socket.data.userId!).emit(SC.Message, message, socket.id);
+    socket.to(to).to(socket.data.userId!).emit(SC.Message, message, socket.data.userId!);
   });
 
   socket.on("disconnect", async () => {
